@@ -34,6 +34,7 @@ interface Conversation {
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
+
 export function AdminChat() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminToken, setAdminToken] = useState<string | null>(() => localStorage.getItem('adminToken'));

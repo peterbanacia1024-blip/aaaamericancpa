@@ -37,6 +37,7 @@ const App = () => (
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/chat-admin" element={<AdminChat />} />
+            <Route path="/admin-chat" element={<AdminChat />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>

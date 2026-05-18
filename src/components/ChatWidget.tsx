@@ -26,6 +26,8 @@ interface StoredMessage {
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
+
+
 const parseVisitorInfo = (storedInfo: string | null): VisitorInfo | null => {
   if (!storedInfo) return null;
 
