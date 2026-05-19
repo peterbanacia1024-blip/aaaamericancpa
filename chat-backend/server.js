@@ -53,7 +53,11 @@ await adminSessionsCol.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const AUTH_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const MAX_AUTH_ATTEMPTS = 8;
+const CONTACT_LEAD_WINDOW_MS = 60 * 1000;
+const MAX_CONTACT_LEAD_ATTEMPTS = 5;
+const CRM_LEAD_API_URL = process.env.CRM_LEAD_API_URL || 'https://aaaamericancpa.net/crm/api/save_lead.php';
 const authAttempts = new Map();
+const contactLeadAttempts = new Map();
 
 function getClientIp(req) {
   return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
@@ -74,6 +78,26 @@ function rateLimitAuth(req, res, next) {
 
   if (current.count > MAX_AUTH_ATTEMPTS) {
     return res.status(429).json({ success: false, error: 'Too many login attempts. Try again later.' });
+  }
+
+  next();
+}
+
+function rateLimitContactLead(req, res, next) {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const current = contactLeadAttempts.get(ip) || { count: 0, resetAt: now + CONTACT_LEAD_WINDOW_MS };
+
+  if (current.resetAt <= now) {
+    current.count = 0;
+    current.resetAt = now + CONTACT_LEAD_WINDOW_MS;
+  }
+
+  current.count += 1;
+  contactLeadAttempts.set(ip, current);
+
+  if (current.count > MAX_CONTACT_LEAD_ATTEMPTS) {
+    return res.status(429).json({ success: false, error: 'Too many submissions. Try again later.' });
   }
 
   next();
@@ -100,6 +124,39 @@ function normalizeVisitorInfo(info) {
     contactNumber: isNonEmptyString(info.contactNumber, 40) ? info.contactNumber.trim() : '',
     inquiry: isNonEmptyString(info.inquiry, 1000) ? info.inquiry.trim() : '',
   };
+}
+
+function normalizeContactLead(body) {
+  if (!body || typeof body !== 'object') return null;
+
+  const firstName = typeof body.first_name === 'string' ? body.first_name.trim() : '';
+  const lastName = typeof body.last_name === 'string' ? body.last_name.trim() : '';
+  const company = typeof body.company === 'string' ? body.company.trim() : '';
+  const email = typeof body.email === 'string' ? body.email.trim() : '';
+  const phone = typeof body.phone === 'string' ? body.phone.trim() : '';
+  const source = typeof body.source === 'string' ? body.source.trim() : 'Website Contact Form';
+  const stage = typeof body.stage === 'string' ? body.stage.trim() : 'New';
+  const description = typeof body.description === 'string' ? body.description.trim() : '';
+
+  return {
+    first_name: firstName.slice(0, 120),
+    last_name: lastName.slice(0, 120),
+    company: company.slice(0, 200),
+    email: email.slice(0, 254),
+    phone: phone.slice(0, 40),
+    source: source.slice(0, 120),
+    stage: stage.slice(0, 80),
+    description: description.slice(0, 5000),
+  };
+}
+
+function validateContactLead(lead) {
+  if (!lead?.first_name) return 'First name is required';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email)) return 'Valid email is required';
+  if (lead.source !== 'Website Contact Form') return 'Invalid lead source';
+  if (lead.stage !== 'New') return 'Invalid lead stage';
+
+  return null;
 }
 
 function validateChatMessage({ visitorId, message }) {
@@ -226,6 +283,43 @@ app.get('/api/admin/verify', requireAdmin, async (req, res) => {
 app.post('/api/admin/logout', requireAdmin, async (req, res) => {
   await adminSessionsCol.deleteOne({ _id: req.admin._id });
   res.json({ success: true });
+});
+
+app.post('/api/contact-lead', rateLimitContactLead, async (req, res) => {
+  const lead = normalizeContactLead(req.body);
+  const validationError = validateContactLead(lead);
+
+  if (validationError) {
+    return res.status(400).json({ success: false, error: validationError });
+  }
+
+  const crmPayload = new URLSearchParams(lead);
+  const headers = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+  };
+
+  if (process.env.CRM_LEAD_API_KEY) {
+    headers['X-CRM-API-Key'] = process.env.CRM_LEAD_API_KEY;
+  }
+
+  try {
+    const crmResponse = await fetch(CRM_LEAD_API_URL, {
+      method: 'POST',
+      headers,
+      body: crmPayload,
+    });
+
+    if (!crmResponse.ok) {
+      const errorText = await crmResponse.text();
+      console.error('CRM lead API error:', crmResponse.status, errorText.slice(0, 500));
+      return res.status(502).json({ success: false, error: 'Unable to save lead' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('CRM lead API request failed:', error);
+    res.status(502).json({ success: false, error: 'Unable to save lead' });
+  }
 });
 
 // REST endpoint to get or store messages
