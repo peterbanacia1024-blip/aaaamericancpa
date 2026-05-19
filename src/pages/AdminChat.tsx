@@ -47,7 +47,7 @@ export function AdminChat() {
   const [inputValue, setInputValue] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const ws = useRef<WebSocket | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectedVisitorIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -257,7 +257,13 @@ export function AdminChat() {
   }, [isAuthenticated, adminToken, handleLogout, loadAllConversations]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const messagesContainer = messagesContainerRef.current;
+    if (!messagesContainer) return;
+
+    messagesContainer.scrollTo({
+      top: messagesContainer.scrollHeight,
+      behavior: 'smooth',
+    });
   }, [messages]);
 
   const selectVisitor = async (visitorId: string) => {
@@ -466,7 +472,7 @@ export function AdminChat() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
             {messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <p className="text-gray-500 text-sm">No messages yet</p>
@@ -496,7 +502,6 @@ export function AdminChat() {
                 </div>
               ))
             )}
-            <div ref={messagesEndRef} />
           </div>
 
           {/* Input Area */}

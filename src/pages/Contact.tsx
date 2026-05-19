@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle, Send, User, Mail, Phone, Building2, Globe, MessageSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import heroBg from "@/assets/hero-bg.jpg";
@@ -14,16 +14,42 @@ const serviceOptions = [
   "Financial Planning", "Audit Services", "Insurance",
 ];
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:3001";
+const LEAD_API_URL = `${BACKEND_URL}/api/contact-lead`;
+const RETURN_DELAY_SECONDS = 5;
+
+const initialForm = {
+  firstName: "", lastName: "", email: "", phone: "",
+  companyName: "", industry: "", website: "",
+  services: [] as string[],
+  message: "", contactMethod: "email", agreed: false,
+};
+
 const Contact = () => {
   const { toast } = useToast();
   const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState({
-    firstName: "", lastName: "", email: "", phone: "",
-    companyName: "", industry: "", website: "",
-    services: [] as string[],
-    message: "", contactMethod: "email", agreed: false,
-  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [returnCountdown, setReturnCountdown] = useState(RETURN_DELAY_SECONDS);
+  const [form, setForm] = useState(initialForm);
   const [rForm, vForm] = useScrollReveal();
+
+  useEffect(() => {
+    if (!submitted) return undefined;
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setReturnCountdown(RETURN_DELAY_SECONDS);
+    const countdownTimer = window.setInterval(() => {
+      setReturnCountdown((current) => Math.max(current - 1, 0));
+    }, 1000);
+    const returnTimer = window.setTimeout(() => {
+      setSubmitted(false);
+    }, RETURN_DELAY_SECONDS * 1000);
+
+    return () => {
+      window.clearInterval(countdownTimer);
+      window.clearTimeout(returnTimer);
+    };
+  }, [submitted]);
 
   const handleServiceToggle = (service: string) => {
     setForm((prev) => ({
@@ -34,13 +60,61 @@ const Contact = () => {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const buildDescription = () => {
+    const details = [
+      form.industry ? `Industry: ${form.industry}` : "",
+      form.services.length ? `Services: ${form.services.join(", ")}` : "",
+      form.contactMethod ? `Preferred contact method: ${form.contactMethod}` : "",
+      form.message.trim(),
+    ].filter(Boolean);
+
+    return details.join("\n\n");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.firstName || !form.email || !form.agreed) {
       toast({ title: "Please fill in all required fields and accept the terms.", variant: "destructive" });
       return;
     }
-    setSubmitted(true);
+
+    const leadData = {
+      first_name: form.firstName.trim(),
+      last_name: form.lastName.trim(),
+      company: form.companyName.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      source: "Website Contact Form",
+      stage: "New",
+      description: buildDescription(),
+    };
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(LEAD_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(leadData),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Lead API responded with ${response.status}`);
+      }
+
+      setSubmitted(true);
+      setForm(initialForm);
+    } catch (error) {
+      console.error("Failed to submit contact form", error);
+      toast({
+        title: "We couldn't submit your inquiry.",
+        description: "Please try again in a moment or contact us directly.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (submitted) {
@@ -61,6 +135,7 @@ const Contact = () => {
               <CheckCircle className="text-sky mx-auto mb-6" size={64} />
               <h2 className="text-3xl font-heading font-bold text-foreground mb-4">Thank You!</h2>
               <p className="text-muted-foreground text-lg">Your inquiry has been submitted. We'll get back to you within 24 hours.</p>
+              <p className="text-muted-foreground text-sm mt-4">Returning to the contact form in {returnCountdown} seconds.</p>
             </div>
           </div>
         </section>
@@ -202,14 +277,18 @@ const Contact = () => {
 
               <label className="flex items-start gap-3 mb-8 cursor-pointer">
                 <input type="checkbox" checked={form.agreed} onChange={(e) => setForm({ ...form, agreed: e.target.checked })}
-                  className="mt-1 rounded border-border text-sky focus:ring-sky" />
+                  className="mt-1 rounded border-border text-sky focus:ring-sky" required />
                 <span className="text-xs text-muted-foreground leading-relaxed">
                   By checking this box, you agree to receive text messages from AAA American CPA related to our services at the phone number provided. You may reply STOP to opt-out at any time. Reply HELP for assistance. Message and data rates may apply.
                 </span>
               </label>
 
-              <button type="submit" className="w-full py-3.5 rounded-lg bg-navy text-white font-semibold hover:bg-sky transition-all text-lg flex items-center justify-center gap-2 shadow-lg">
-                <Send size={18} /> Submit Inquiry
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3.5 rounded-lg bg-navy text-white font-semibold hover:bg-sky transition-all text-lg flex items-center justify-center gap-2 shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                <Send size={18} /> {isSubmitting ? "Submitting..." : "Submit Inquiry"}
               </button>
 
               <p className="text-center text-xs text-muted-foreground mt-4">🔒 Your information is secure and encrypted.</p>
